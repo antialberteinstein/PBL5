@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Camera - Face Recognition System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎥 WebRTC Camera System</h1>
+            <p class="subtitle">Real-time Face Recognition</p>
+        </header>
+
+        <main>
+            <div class="video-container">
+                <div class="video-wrapper">
+                    <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Camera Feed">
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Live</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="info-card">
+                    <div class="info-header">
+                        <h2>📊 System Status</h2>
+                    </div>
+                    <div class="info-content">
+                        <div class="info-item">
+                            <span class="label">Connection:</span>
+                            <span class="value connected" id="connectionStatus">Connected</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Server:</span>
+                            <span class="value">localhost:7750</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Stream Quality:</span>
+                            <span class="value">30 FPS</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-card result-card">
+                    <div class="info-header">
+                        <h2>✅ Verification Results</h2>
+                    </div>
+                    <div class="info-content">
+                        <div id="resultDisplay" class="result-display">
+                            <p class="no-result">Waiting for verification...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Face Recognition System • WebRTC Camera Module</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
