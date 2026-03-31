@@ -25,7 +25,7 @@ class ClassificationPipeline:
         self,
         pca: PCAProcessor,
         scaler: ScalerProcessor,
-        classifier: CosineClassifier,
+        classifier: CosineClassifier
     ):
         """
         Initialize the classification pipeline.
@@ -72,6 +72,7 @@ class ClassificationPipeline:
             Tuple of containing the (class_id, score)
         """
         processed_emb = self.transform(raw_embedding)
+
         return self.classifier.predict_with_score(processed_emb)
 
     def fit(self, class_id: str, raw_embeddings: List[np.ndarray]) -> None:
@@ -82,6 +83,7 @@ class ClassificationPipeline:
             class_id: The label for the entity being inserted
             raw_embeddings: A list of Numpy Arrays (from recog.face_recognition)
         """
+
         if not raw_embeddings:
             return
             

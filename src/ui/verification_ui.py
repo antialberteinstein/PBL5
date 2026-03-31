@@ -37,34 +37,64 @@ class VerificationUI:
         self.color_failure = color_failure
 
     def run(self, camera: Any) -> None:
-        logging.info("Starting verification UI")
+        import threading
+        import time
+        
+        logging.info("Starting verification UI via Background Thread")
+        
+        self._stop_event = threading.Event()
+        self._latest_frame = None
+        self._latest_results = []
+        self._results_lock = threading.Lock()
+        
+        def _pipeline_worker():
+            while not self._stop_event.is_set():
+                if self._latest_frame is not None:
+                    frame_copy = self._latest_frame.copy()
+                    try:
+                        results = self.service.verify(frame_copy)
+                        with self._results_lock:
+                            self._latest_results = results
+                    except Exception as e:
+                        logging.error(f"Verification pipeline error: {e}")
+                time.sleep(0.1)  # Rest interval to prevent lag
+
+        worker = threading.Thread(target=_pipeline_worker, daemon=True)
+        worker.start()
         
         while True:
             frame = camera.capture_frame()
             if frame is None:
                 cv2.waitKey(100)
                 continue
+                
+            # Update latest frame for background processing
+            self._latest_frame = frame
             
-            try:
-                results = self.service.verify(frame)
-                for res in results:
-                    self._draw_result(frame, res)
+            # Draw from cache
+            with self._results_lock:
+                results_copy = self._latest_results.copy()
+                
+            for res in results_copy:
+                self._draw_result(frame, res)
+                
+                if debug_config.SHOW_FACE_LANDMARKS and res.get("landmarks") is not None:
+                    self._draw_landmarks(frame, res["landmarks"])
                     
-                    if debug_config.SHOW_FACE_LANDMARKS and res.get("landmarks") is not None:
-                        self._draw_landmarks(frame, res["landmarks"])
-                        
-                    if res["is_known"]:
-                        camera.send_result(f"MATCH: {res['class_id']} ({res['score']:.2f})")
-            except Exception as e:
-                logging.error(f"Verification UI error: {e}")
+                if res["is_known"]:
+                    camera.send_result(f"MATCH: {res['class_id']} ({res['score']:.2f})")
             
             cv2.imshow(self.window_name, frame)
             cv2.setWindowProperty(self.window_name, cv2.WND_PROP_TOPMOST, 1)
             
             key = cv2.waitKey(30) & 0xFF
-            if key == ord("q") or key == 27: break
+            if key == ord("q") or key == 27: 
+                self._stop_event.set()
+                break
             
+        worker.join(timeout=1.0)
         cv2.destroyAllWindows()
+        import sys
         if sys.platform == "darwin":
             # Extra wait for macOS OpenCV window cleanup
             for _ in range(30): cv2.waitKey(1)

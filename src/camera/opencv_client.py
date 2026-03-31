@@ -7,6 +7,7 @@ OpenCV client for receiving frames from local camera.
 
 import logging
 from typing import Optional
+import threading
 
 import cv2
 import numpy as np
@@ -21,6 +22,7 @@ class OpenCVCamera:
     
     def __init__(self):
         self._cap: Optional[cv2.VideoCapture] = None
+        self._lock = threading.Lock()
         
     def _get_capture_device(self) -> cv2.VideoCapture:
         """
@@ -46,25 +48,26 @@ class OpenCVCamera:
         Capture a single frame from local camera using OpenCV.
         To avoid lag, we grab multiple times to clear the internal buffer.
         """
-        cap = self._get_capture_device()
-        if not cap.isOpened():
-            return None
+        with self._lock:
+            cap = self._get_capture_device()
+            if not cap.isOpened():
+                return None
+                
+            # Due to openCV's internal buffer, if the processing loop is slower than 
+            # the camera FPS, the displayed frames will lag behind real-time. 
+            # Reading extra frames clears the buffer. On macOS we might need to grab more.
+            for _ in range(5):
+                if not cap.grab():
+                    break
+                
+            # Actually decode the final newest frame
+            ret, frame = cap.retrieve()
             
-        # Due to openCV's internal buffer, if the processing loop is slower than 
-        # the camera FPS, the displayed frames will lag behind real-time. 
-        # Reading extra frames clears the buffer. On macOS we might need to grab more.
-        for _ in range(5):
-            if not cap.grab():
-                break
-            
-        # Actually decode the final newest frame
-        ret, frame = cap.retrieve()
-        
-        if not ret:
-            logging.warning("Failed to retrieve frame from camera")
-            return None
-            
-        return frame
+            if not ret:
+                logging.warning("Failed to retrieve frame from camera")
+                return None
+                
+            return frame
 
     def send_result(self, message: str) -> None:
         """
@@ -76,9 +79,10 @@ class OpenCVCamera:
         """
         Release the camera resource and clear windows.
         """
-        if self._cap is not None:
-            self._cap.release()
-            self._cap = None
+        with self._lock:
+            if self._cap is not None:
+                self._cap.release()
+                self._cap = None
         # Clean up any lingering windows just in case
         cv2.destroyAllWindows()
         import sys

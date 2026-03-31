@@ -45,6 +45,7 @@ class UpdateFaceService:
         self.current_pose_idx = 0
         self.total_collected_session = 0
         self.pose_counts = {p: 0 for p in self.poses}
+        self._existing_db_list = []
         
     def get_pose_count(self, pose: str) -> int:
         return self.pose_counts.get(pose, 0)
@@ -72,8 +73,6 @@ class UpdateFaceService:
                 result["status"] = "NOT_DIVERSE"
                 
         return result
-        
-        self._existing_db_list = []
 
     def load_existing_vectors(self, class_id: str) -> None:
         """Loads existing vectors from DB for diversity checking."""
