@@ -7,7 +7,6 @@ UDP camera implementation.
 
 import logging
 import socket
-import time
 from typing import Optional
 
 import cv2
@@ -25,7 +24,6 @@ class UDPCamera:
         """
         Capture a single frame from UDP camera server.
         """
-        start_time = time.time()
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(config.SOCKET_TIMEOUT)
@@ -33,23 +31,14 @@ class UDPCamera:
         try:
             ### 1. Send GET_FRAME request to server
             sock.sendto(b"GET_FRAME", (config.UDP_HOST, config.UDP_PORT))
-            logging.debug(
-                "Sent GET_FRAME to %s:%s (timeout=%ss, buffer=%s bytes)",
-                config.UDP_HOST,
-                config.UDP_PORT,
-                config.SOCKET_TIMEOUT,
-                config.UDP_BUFFER_SIZE,
-            )
             
             ### 2. Receive chunks
             chunks = {}
             total_chunks = None
-            total_bytes = 0
             
             while True:
                 try:
-                    data, addr = sock.recvfrom(config.UDP_BUFFER_SIZE)
-                    logging.debug("Received datagram: %s bytes from %s", len(data), addr)
+                    data, _ = sock.recvfrom(config.UDP_BUFFER_SIZE)
                     
                     ### 3. Check for error messages
                     if data.startswith(b"ERROR|"):
@@ -66,7 +55,6 @@ class UDPCamera:
                         
                         parts = header.rstrip('|').split('|')
                         if len(parts) != 2:
-                            logging.debug("Invalid header parts: %s", parts)
                             continue
                         
                         chunk_idx = int(parts[0])
@@ -78,27 +66,9 @@ class UDPCamera:
                     ### 5. Initialize total chunks on first chunk
                     if total_chunks is None:
                         total_chunks = curr_total_chunks
-                        logging.debug("Total chunks announced: %s", total_chunks)
-                    elif curr_total_chunks != total_chunks:
-                        logging.warning(
-                            "Total chunks changed mid-stream: %s -> %s",
-                            total_chunks,
-                            curr_total_chunks,
-                        )
-                        total_chunks = curr_total_chunks
                     
                     ### 6. Store chunk
-                    if chunk_idx in chunks:
-                        logging.debug("Duplicate chunk %s received (size=%s)", chunk_idx, len(chunk_data))
                     chunks[chunk_idx] = chunk_data
-                    total_bytes += len(chunk_data)
-                    logging.debug(
-                        "Stored chunk %s/%s (size=%s, received=%s)",
-                        chunk_idx,
-                        total_chunks,
-                        len(chunk_data),
-                        len(chunks),
-                    )
                     
                     ### 7. Check if all chunks received
                     if len(chunks) == total_chunks:
@@ -110,29 +80,11 @@ class UDPCamera:
                     return None
             
             ### 8. Reassemble frame
-            missing = [i for i in range(total_chunks) if i not in chunks]
-            if missing:
-                logging.warning("Missing chunks: %s", missing)
-                return None
-
             frame_data = b''.join(chunks[i] for i in range(total_chunks))
-            logging.debug("Reassembled frame: %s bytes from %s chunks", len(frame_data), total_chunks)
             
             ### 9. Decode image
             frame_array = np.frombuffer(frame_data, dtype=np.uint8)
             frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
-            if frame is None:
-                logging.error("Failed to decode frame (bytes=%s)", len(frame_data))
-                return None
-
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            logging.debug(
-                "Decoded frame: shape=%s dtype=%s in %sms (payload=%s bytes)",
-                getattr(frame, "shape", None),
-                frame.dtype,
-                elapsed_ms,
-                len(frame_data),
-            )
             
             return frame
             

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import sys
 import time
@@ -15,6 +16,8 @@ if __package__ is None:
         sys.path.insert(0, src_dir)
 
 from fastapi import FastAPI, HTTPException
+import cv2
+import numpy as np
 from pydantic import BaseModel, Field
 
 from api.api_config import get_camera_client, get_camera_lock, get_pipelines
@@ -59,6 +62,31 @@ def _serialize_result(res: Dict[str, Any]) -> Dict[str, Any]:
     return serialized
 
 
+def _encode_face_crop(frame: np.ndarray, bbox: np.ndarray, pad: int = 20) -> Optional[Dict[str, Any]]:
+    if frame is None or bbox is None:
+        return None
+
+    x1, y1, x2, y2 = bbox.astype(int)
+    x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
+    x2, y2 = min(frame.shape[1], x2 + pad), min(frame.shape[0], y2 + pad)
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    crop = frame[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+
+    success, encoded = cv2.imencode(".jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not success:
+        return None
+
+    return {
+        "format": "jpeg",
+        "data": base64.b64encode(encoded).decode("ascii"),
+    }
+
+
 @app.post("/register")
 def register_face(payload: RegisterRequest) -> Dict[str, Any]:
     recog_pipeline, classify_pipeline = get_pipelines()
@@ -69,6 +97,7 @@ def register_face(payload: RegisterRequest) -> Dict[str, Any]:
 
     start_time = time.time()
     last_status: Optional[Dict[str, Any]] = None
+    last_image: Optional[Dict[str, Any]] = None
 
     with lock:
         while time.time() - start_time < payload.timeout_sec:
@@ -81,11 +110,14 @@ def register_face(payload: RegisterRequest) -> Dict[str, Any]:
             if main_face is None:
                 continue
 
+            last_image = _encode_face_crop(frame, main_face.bbox)
+
             db_id = service.check_already_registered(frame, main_face.bbox)
             if db_id:
                 return {
                     "status": "already_registered",
                     "class_id": db_id,
+                    "image": last_image,
                 }
 
             last_status = service.process_face_sample(payload.class_id, frame, main_face)
@@ -96,6 +128,7 @@ def register_face(payload: RegisterRequest) -> Dict[str, Any]:
                     "class_id": payload.class_id,
                     "total_collected": service.total_collected,
                     "max_required": service.max_registration_images,
+                    "image": last_image,
                 }
 
     return {
@@ -104,6 +137,7 @@ def register_face(payload: RegisterRequest) -> Dict[str, Any]:
         "total_collected": service.total_collected,
         "max_required": service.max_registration_images,
         "last": last_status,
+        "image": last_image,
     }
 
 
@@ -118,6 +152,7 @@ def update_face(payload: UpdateRequest) -> Dict[str, Any]:
 
     start_time = time.time()
     last_status: Optional[Dict[str, Any]] = None
+    last_image: Optional[Dict[str, Any]] = None
 
     with lock:
         while time.time() - start_time < payload.timeout_sec:
@@ -130,6 +165,8 @@ def update_face(payload: UpdateRequest) -> Dict[str, Any]:
             if main_face is None:
                 continue
 
+            last_image = _encode_face_crop(frame, main_face.bbox)
+
             last_status = service.process_face_sample(payload.class_id, frame, main_face)
             if service.is_complete:
                 service.save(payload.class_id)
@@ -138,6 +175,7 @@ def update_face(payload: UpdateRequest) -> Dict[str, Any]:
                     "class_id": payload.class_id,
                     "total_collected": service.total_collected_session,
                     "max_required": service.max_update_images,
+                    "image": last_image,
                 }
 
     return {
@@ -146,6 +184,7 @@ def update_face(payload: UpdateRequest) -> Dict[str, Any]:
         "total_collected": service.total_collected_session,
         "max_required": service.max_update_images,
         "last": last_status,
+        "image": last_image,
     }
 
 

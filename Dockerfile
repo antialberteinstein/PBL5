@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
 
 COPY src ./src
 COPY models ./models
+COPY dataset ./dataset
 COPY database ./database
 COPY logs ./logs
 COPY tools ./tools
