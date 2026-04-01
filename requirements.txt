@@ -4,6 +4,6 @@ opencv-python
 insightface
 onnx
 onnxruntime
-"pymilvus[lite]"
+pymilvus[lite]
 scikit-learn
 uvicorn
