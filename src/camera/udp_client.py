@@ -1,178 +1,71 @@
 # ==============================================================================
-#                           SECTION: UDP CAMERA CLIENT
+#                           SECTION: UDP CAMERA CLIENT (NO CHUNKING)
 # ==============================================================================
 """
-UDP camera implementation.
+UDP camera implementation - RAW Packet Mode (One packet = One frame).
 """
 
 import logging
 import socket
 import time
 from typing import Optional
-
 import cv2
 import numpy as np
 
-from . import config
-
+try:
+    from . import config
+except ImportError:
+    class DummyConfig:
+        UDP_PORT = 7751
+        UDP_HOST = "0.0.0.0"
+        UDP_BUFFER_SIZE = 65535 # Nhận tối đa giới hạn của 1 gói UDP
+        SOCKET_TIMEOUT = 1.0
+    config = DummyConfig()
 
 class UDPCamera:
-    """
-    Camera provider implementation using UDP client.
-    """
-    
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        # Tăng bộ đệm nhận của hệ thống lên để tránh mất gói khi xử lý AI nặng
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        
+        try:
+            self.sock.bind((config.UDP_HOST, config.UDP_PORT))
+            logging.info(f"UDP Receiver (No Chunking) started on port {config.UDP_PORT}")
+        except Exception as e:
+            logging.error(f"Could not bind: {e}")
+            
+        self.sock.settimeout(config.SOCKET_TIMEOUT)
+
     def capture_frame(self) -> Optional[np.ndarray]:
         """
-        Capture a single frame from UDP camera server.
+        Nhận trực tiếp 1 gói UDP và giải mã thành ảnh.
         """
-        start_time = time.time()
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.settimeout(config.SOCKET_TIMEOUT)
-        
         try:
-            ### 1. Send GET_FRAME request to server
-            sock.sendto(b"GET_FRAME", (config.UDP_HOST, config.UDP_PORT))
-            logging.debug(
-                "Sent GET_FRAME to %s:%s (timeout=%ss, buffer=%s bytes)",
-                config.UDP_HOST,
-                config.UDP_PORT,
-                config.SOCKET_TIMEOUT,
-                config.UDP_BUFFER_SIZE,
-            )
+            # 1. Nhận nguyên 1 gói tin
+            data, addr = self.sock.recvfrom(config.UDP_BUFFER_SIZE)
             
-            ### 2. Receive chunks
-            chunks = {}
-            total_chunks = None
-            total_bytes = 0
-            
-            while True:
-                try:
-                    data, addr = sock.recvfrom(config.UDP_BUFFER_SIZE)
-                    logging.debug("Received datagram: %s bytes from %s", len(data), addr)
-                    
-                    ### 3. Check for error messages
-                    if data.startswith(b"ERROR|"):
-                        error_msg = data.decode('utf-8', errors='ignore')
-                        logging.error(f"Server error: {error_msg}")
-                        return None
-                    
-                    ### 4. Parse chunk header
-                    # Format: chunk_index|total_chunks|data
-                    try:
-                        header_end = data.index(b'|', data.index(b'|') + 1) + 1
-                        header = data[:header_end].decode('utf-8')
-                        chunk_data = data[header_end:]
-                        
-                        parts = header.rstrip('|').split('|')
-                        if len(parts) != 2:
-                            logging.debug("Invalid header parts: %s", parts)
-                            continue
-                        
-                        chunk_idx = int(parts[0])
-                        curr_total_chunks = int(parts[1])
-                    except (ValueError, IndexError):
-                        logging.warning("Invalid chunk header, skipping")
-                        continue
-                    
-                    ### 5. Initialize total chunks on first chunk
-                    if total_chunks is None:
-                        total_chunks = curr_total_chunks
-                        logging.debug("Total chunks announced: %s", total_chunks)
-                    elif curr_total_chunks != total_chunks:
-                        logging.warning(
-                            "Total chunks changed mid-stream: %s -> %s",
-                            total_chunks,
-                            curr_total_chunks,
-                        )
-                        total_chunks = curr_total_chunks
-                    
-                    ### 6. Store chunk
-                    if chunk_idx in chunks:
-                        logging.debug("Duplicate chunk %s received (size=%s)", chunk_idx, len(chunk_data))
-                    chunks[chunk_idx] = chunk_data
-                    total_bytes += len(chunk_data)
-                    logging.debug(
-                        "Stored chunk %s/%s (size=%s, received=%s)",
-                        chunk_idx,
-                        total_chunks,
-                        len(chunk_data),
-                        len(chunks),
-                    )
-                    
-                    ### 7. Check if all chunks received
-                    if len(chunks) == total_chunks:
-                        break
-                        
-                except socket.timeout:
-                    if chunks:
-                        logging.warning(f"Timeout: received {len(chunks)}/{total_chunks} chunks")
-                    return None
-            
-            ### 8. Reassemble frame
-            missing = [i for i in range(total_chunks) if i not in chunks]
-            if missing:
-                logging.warning("Missing chunks: %s", missing)
+            if not data:
                 return None
 
-            frame_data = b''.join(chunks[i] for i in range(total_chunks))
-            logging.debug("Reassembled frame: %s bytes from %s chunks", len(frame_data), total_chunks)
-            
-            ### 9. Decode image
-            frame_array = np.frombuffer(frame_data, dtype=np.uint8)
+            # 2. Giải mã trực tiếp từ mảng Byte (JPEG RAW)
+            frame_array = np.frombuffer(data, dtype=np.uint8)
             frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            
             if frame is None:
-                logging.error("Failed to decode frame (bytes=%s)", len(frame_data))
+                # Nếu payload là 1456, khả năng cao là ảnh đã bị Router chặt đứt đuôi
+                logging.debug(f"Decode failed. Packet size: {len(data)} bytes")
                 return None
-
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            logging.debug(
-                "Decoded frame: shape=%s dtype=%s in %sms (payload=%s bytes)",
-                getattr(frame, "shape", None),
-                frame.dtype,
-                elapsed_ms,
-                len(frame_data),
-            )
-            
-            return frame
-            
-        except Exception as e:
-            logging.error(f"Error capturing frame: {e}")
-            return None
-        finally:
-            sock.close()
-
-    def send_result(self, message: str) -> None:
-        """
-        Send result message to camera server via UDP.
-        """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
-        try:
-            ### Send message to server with RESULT| prefix
-            formatted_message = f"RESULT|{message}"
-            sock.sendto(
-                formatted_message.encode('utf-8'),
-                (config.UDP_HOST, config.UDP_PORT)
-            )
-            
-            ### Wait for acknowledgment (optional)
-            sock.settimeout(0.1)
-            try:
-                ack, _ = sock.recvfrom(1024)
-                if ack == b"ACK":
-                    logging.debug("Result acknowledged by server")
-            except socket.timeout:
-                pass  # Server might not send ACK
                 
+            return frame
+
+        except socket.timeout:
+            return None
         except Exception as e:
-            logging.error(f"Error sending result: {e}")
-        finally:
-            sock.close()
-            
-    def release(self) -> None:
-        """
-        Release any resources held by the camera provider.
-        """
-        pass
+            logging.error(f"Error: {e}")
+            return None
+
+    def release(self):
+        if self.sock:
+            self.sock.close()

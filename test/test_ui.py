@@ -39,6 +39,8 @@ from ui.registration_ui import RegistrationUI
 from ui.update_face_ui import UpdateFaceUI
 from ui.verification_ui import VerificationUI
 from camera.opencv_client import OpenCVCamera
+from camera.http_client import HTTPCamera
+from camera.udp_client import UDPCamera
 from classify.preprocessing import PCAProcessor, ScalerProcessor
 from pipeline.classify import ClassificationPipeline
 from pipeline.recog import RecognitionPipeline
@@ -49,7 +51,9 @@ from pipeline.recog import RecognitionPipeline
 
 face_recognizer = InsightFaceDetector()
 classifier = CosineClassifier()
-camera = OpenCVCamera()
+
+print('Init udp camera')
+camera = HTTPCamera()
 
 # ==============================================================================
 #                                   SECTION: MAIN

@@ -6,7 +6,7 @@ Configuration constants for camera/UDP module.
 """
 
 # UDP Camera Server Configuration
-UDP_HOST = "127.0.0.1"
+UDP_HOST = "0.0.0.0"
 UDP_PORT = 7751
 UDP_BUFFER_SIZE = 65535  # Maximum UDP packet size
 SOCKET_TIMEOUT = 0.5  # Timeout in seconds for UDP socket operations
