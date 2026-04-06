@@ -108,7 +108,11 @@ class VerificationUI:
         
         # Draw ID and Score
         score_val = res["score"]
-        score_str = f"{score_val:.2f}" if score_val != float('inf') else "inf"
+
+        if score_val is None:
+            score_str = "N/A"
+        else:
+            score_str = f"{score_val:.2f}" if score_val != float('inf') else "inf"
         text = f"{res['class_id']}: {score_str}" if res["is_known"] else f"UNKNOWN: {score_str}"
         cv2.putText(frame, text, (box[0], box[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         

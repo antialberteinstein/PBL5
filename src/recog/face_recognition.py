@@ -5,7 +5,7 @@
 Face recognition implementation using InsightFace.
 
 Provides face detection and embedding extraction using the
-InsightFace library (buffalo_l model).
+InsightFace library with a selectable model source.
 """
 
 from abc import ABC, abstractmethod
@@ -13,9 +13,12 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import logging
+import os
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
+
+from .config import MODEL_SOURCE, LOCAL_PRETRAINED_ROOT, LOCAL_FINETUNED_ROOT, resolve_model_settings
 
 
 # ==============================================================================
@@ -119,13 +122,18 @@ class InsightFaceDetector(FaceRecognizer):
     
     def __init__(
         self,
-        model_name: str = "buffalo_l",
         device: str = "cpu",
         det_threshold: float = 0.5,
         det_size: tuple = (640, 640),
     ):
         """Initialize InsightFace detector."""
+        model_name, model_root = resolve_model_settings(
+            MODEL_SOURCE,
+            LOCAL_PRETRAINED_ROOT,
+            LOCAL_FINETUNED_ROOT,
+        )
         self.model_name = model_name
+        self.model_root = str(model_root) if model_root is not None else None
         self.device = device
         self.det_threshold = det_threshold
         self.det_size = det_size
@@ -144,7 +152,14 @@ class InsightFaceDetector(FaceRecognizer):
             return
         
         ### 1. Initialize FaceAnalysis
-        self.app = FaceAnalysis(name=self.model_name)
+        if self.model_root:
+            os.environ["INSIGHTFACE_HOME"] = self.model_root
+            try:
+                self.app = FaceAnalysis(name=self.model_name, root=self.model_root)
+            except TypeError:
+                self.app = FaceAnalysis(name=self.model_name)
+        else:
+            self.app = FaceAnalysis(name=self.model_name)
         
         ### 2. Prepare model with configuration
         ctx_id = -1 if self.device == "cpu" else 0

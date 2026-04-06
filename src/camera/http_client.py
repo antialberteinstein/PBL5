@@ -6,7 +6,7 @@ import socket
 class HTTPCamera:
     def __init__(self):
         # Tăng timeout lên hẳn 20 giây để ESP32 kịp "thở"
-        self.url = "http://192.168.1.45:81/stream"
+        self.url = "http://172.20.10.3:81/stream"
         self.stream = None
         self.byte_buffer = b''
 
